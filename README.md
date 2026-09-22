@@ -153,24 +153,67 @@ ltex work
 - Rebuilds once per actual change and prints only warnings/errors in the
   terminal.
 
-For PDF-to-editor navigation, set the viewer to `zathura` or `okular`:
+## PDF-to-editor navigation
+
+ltex enables SyncTeX during every build, which lets a PDF viewer map a clicked
+PDF position back to the corresponding source file and line. The PDF must have
+been compiled successfully before inverse search can work.
+
+### Zathura
+
+Set Zathura and your editor in ltex:
 
 ```bash
 ltex config viewer zathura
 ltex config editor code
+ltex watch
 ```
 
-Zathura is configured automatically when ltex opens the PDF. For Okular, open
-Settings → Configure Okular → Editor, select Custom Text Editor, and use:
+When ltex opens Zathura, it automatically passes the SyncTeX callback command.
+Use Zathura's SyncTeX modifier click (normally Ctrl-click) on PDF text. ltex
+will open or focus VS Code at that source location. Codium works the same way:
+
+```bash
+ltex config editor codium
+```
+
+This automatic setup applies when Zathura is opened by `ltex watch` or
+`ltex work`. If Zathura is opened manually, add this to
+`~/.config/zathura/zathurarc` (Linux) or the equivalent Zathura configuration
+file:
 
 ```text
-ltex inverse-search %f %l %c
+set synctex-editor-command "ltex inverse-search \"%{input}\" \"%{line}\""
 ```
 
-Then use Zathura's SyncTeX modifier click or Okular's Browse tool with
-Shift-click. Other viewers still work, but ltex warns that inverse search is
-unavailable. VS Code and Codium are opened with `--reuse-window --goto` so an
-existing editor window is focused when possible.
+### Okular
+
+Set Okular and your editor in ltex:
+
+```bash
+ltex config viewer okular
+ltex config editor code
+ltex watch
+```
+
+Then configure Okular once:
+
+1. Open Settings → Configure Okular → Editor.
+2. Select Custom Text Editor.
+3. Set the command to:
+
+```text
+ltex inverse-search "%f" %l %c
+```
+
+4. Enable Tools → Browse in the PDF window.
+5. Shift-click the PDF text to open the corresponding source location.
+
+Okular uses its configured editor command rather than a command-line callback,
+so this setup is required even when Okular was opened by ltex. Other viewers
+still work, but ltex warns that inverse search is unavailable. VS Code and
+Codium are opened with `--reuse-window --goto`, so an existing editor window is
+focused when possible.
 
 `ltex watch` opens the configured PDF viewer by default while watching. Use
 `ltex watch --no-viewer` to keep the watcher in the terminal without launching

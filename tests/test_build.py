@@ -141,7 +141,7 @@ class SyncTeXTests(unittest.TestCase):
         popen.assert_called_once_with([
             "zathura",
             "--synctex-editor-command",
-            'ltex inverse-search "%{input}" "%{line}" "%{column}"',
+            'ltex inverse-search "%{input}" "%{line}"',
             "build/main.pdf",
         ])
 
@@ -149,6 +149,11 @@ class SyncTeXTests(unittest.TestCase):
         with patch("ltex.cli.subprocess.Popen") as popen:
             self.assertTrue(open_editor_at(Path("main.tex"), 42, 8, "code"))
         popen.assert_called_once_with(["code", "--reuse-window", "--goto", "main.tex:42:8"])
+
+    def test_code_editor_normalizes_unknown_synctex_column(self):
+        with patch("ltex.cli.subprocess.Popen") as popen:
+            self.assertTrue(open_editor_at(Path("main.tex"), 42, -1, "code"))
+        popen.assert_called_once_with(["code", "--reuse-window", "--goto", "main.tex:42:1"])
 
 
 if __name__ == "__main__":

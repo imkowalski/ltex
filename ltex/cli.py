@@ -159,7 +159,9 @@ def open_viewer(path: Path, config: dict[str, str]) -> bool:
         return False
     name = Path(parts[0]).name.lower()
     if name == "zathura":
-        callback = f'{config["inverse_search"]} "%{{input}}" "%{{line}}" "%{{column}}"'
+        # Zathura's documented inverse-search placeholders are input and line.
+        # ltex defaults the optional column to 1 for this callback.
+        callback = f'{config["inverse_search"]} "%{{input}}" "%{{line}}"'
         parts += ["--synctex-editor-command", callback]
     elif name != "okular":
         inverse_search_warning(command)
@@ -182,6 +184,10 @@ def open_editor_at(path: Path, line: int, column: int, command: str) -> bool:
     name = Path(parts[0]).name.lower()
     if name.endswith(".exe"):
         name = name[:-4]
+    # Some SyncTeX viewers report an unknown column as -1. VS Code rejects
+    # negative character positions, so normalize it before building --goto.
+    line = max(1, line)
+    column = max(1, column)
     location = f"{path}:{line}:{column}"
     if name in {"code", "codium"}:
         launch_parts = parts + ["--reuse-window", "--goto", location]
