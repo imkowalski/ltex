@@ -6,6 +6,8 @@ when source files change. New projects use `latexmk` by default, giving an
 Overleaf-style multi-pass build for references, bibliographies, indexes, and
 other generated dependencies.
 
+>[!WARNING]
+> Some parts of this project are AI generate
 ## Install ltex
 
 The recommended installers do not require an existing Python or Conda setup.
@@ -23,13 +25,6 @@ Windows PowerShell:
 ```powershell
 .\install.ps1
 ```
-
-Windows Command Prompt:
-
-```bat
-install.cmd
-```
-
 The installer adds the user tool directory to PATH and interactively asks for
 the default editor and PDF viewer. Open a new terminal afterward so the PATH
 change is loaded. Re-run the installer after updating this checkout.
