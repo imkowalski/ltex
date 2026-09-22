@@ -6,6 +6,11 @@ from pathlib import Path
 
 METADATA = ".ltex"
 PROJECT_FILE = "project.json"
+GITIGNORE = """# ltex-generated files
+.ltex/*
+!.ltex/.gitkeep
+build/
+"""
 
 VSCODE_TASKS = {
     "version": "2.0.0",
@@ -55,6 +60,20 @@ def metadata_path(root: Path) -> Path:
     # location as a backwards-compatible migration path.
     project_file = root / PROJECT_FILE
     return project_file if project_file.exists() else root / METADATA / PROJECT_FILE
+
+
+def write_project_gitignore(root: Path) -> None:
+    """Create default ignore rules without replacing a user's .gitignore."""
+    path = root / ".gitignore"
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    if GITIGNORE not in existing:
+        separator = "\n" if existing and not existing.endswith("\n") else ""
+        path.write_text(existing + separator + GITIGNORE, encoding="utf-8")
+
+
+def write_metadata_placeholder(root: Path) -> None:
+    """Keep the .ltex project marker present in Git without tracking state."""
+    (root / METADATA / ".gitkeep").write_text("", encoding="utf-8")
 
 
 def project_info(root: Path) -> dict:

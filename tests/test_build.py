@@ -81,6 +81,16 @@ class MainFileDetectionTests(unittest.TestCase):
             self.assertEqual(main(["init", directory]), 0)
             self.assertFalse((Path(directory) / ".vscode" / "tasks.json").exists())
 
+    def test_init_writes_gitignore_and_preserves_ltex_marker(self):
+        with TemporaryDirectory() as directory, patch("ltex.cli.build", return_value=True):
+            self.assertEqual(main(["init", directory]), 0)
+            root = Path(directory)
+            self.assertEqual(
+                (root / ".gitignore").read_text(encoding="utf-8"),
+                "# ltex-generated files\n.ltex/*\n!.ltex/.gitkeep\nbuild/\n",
+            )
+            self.assertTrue((root / ".ltex" / ".gitkeep").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,7 +10,17 @@ from pathlib import Path
 
 from .build import build
 from .config import DEFAULTS, config_path, command_parts, load_config, save_config, validate_config
-from .project import find_main_file, find_root, main_file_path, pdf_path, project_info, write_project_info, write_vscode_tasks
+from .project import (
+    find_main_file,
+    find_root,
+    main_file_path,
+    pdf_path,
+    project_info,
+    write_metadata_placeholder,
+    write_project_gitignore,
+    write_project_info,
+    write_vscode_tasks,
+)
 from .template import copy_template
 
 WATCH_EXTENSIONS = {".tex", ".bib", ".sty", ".cls", ".png", ".jpg", ".jpeg", ".pdf"}
@@ -259,6 +269,8 @@ def main(argv: list[str] | None = None) -> int:
         try:
             copy_template(root, config["templates_dir"], args.template)
             (root / ".ltex").mkdir()
+            write_metadata_placeholder(root)
+            write_project_gitignore(root)
             main_file = find_main_file(root).relative_to(root)
             write_project_info(root, {
                 "main_file": str(main_file),
