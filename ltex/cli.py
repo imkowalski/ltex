@@ -37,6 +37,7 @@ USAGE
   ltex open                            Open the main .tex file in the editor
   ltex edit                            Alias for `ltex open`
   ltex update                          Update ltex from its GitHub repository
+  ltex inverse-search FILE LINE [COL]  Open a source location from a PDF viewer
   ltex config                          Read or change global configuration
 
 COMMON WORKFLOW
@@ -67,6 +68,8 @@ CONFIGURATION
   ltex config                         Show all settings
   ltex config editor code             Set the editor command
   ltex config viewer zathura          Set the PDF viewer command
+  ltex config inverse_search COMMAND  Set the PDF-to-editor callback command
+  ltex config inverse_search COMMAND  Set the PDF-to-editor callback command
   ltex config distribution miktex    Set miktex, texlive, or tinytex
   ltex config engine latexmk          Set latexmk, pdflatex, xelatex, or lualatex
   ltex config templates_dir PATH      Set the template directory
@@ -132,6 +135,71 @@ def open_path(path: Path, command: str, label: str) -> bool:
     return True
 
 
+def viewer_name(command: str) -> str:
+    parts = command_parts(command)
+    return Path(parts[0]).name.lower() if parts else ""
+
+
+def inverse_search_warning(command: str) -> None:
+    name = viewer_name(command)
+    if name in {"zathura", "okular"} or not name:
+        return
+    print(
+        f"ltex: inverse search is unavailable for viewer {name!r}; "
+        "use zathura or okular for PDF-to-editor navigation"
+    )
+
+
+def open_viewer(path: Path, config: dict[str, str]) -> bool:
+    """Open a PDF and configure inverse search where the viewer supports it."""
+    command = config["viewer"]
+    parts = command_parts(command)
+    if not parts:
+        print("ltex: no viewer configured; use `ltex config viewer ...`")
+        return False
+    name = Path(parts[0]).name.lower()
+    if name == "zathura":
+        callback = f'{config["inverse_search"]} "%{{input}}" "%{{line}}" "%{{column}}"'
+        parts += ["--synctex-editor-command", callback]
+    elif name != "okular":
+        inverse_search_warning(command)
+    try:
+        subprocess.Popen(parts + [str(path)])
+    except OSError as exc:
+        print(f"ltex: could not start viewer: {exc}")
+        return False
+    return True
+
+
+def open_editor_at(path: Path, line: int, column: int, command: str) -> bool:
+    """Open a source location, reusing an existing GUI editor when supported."""
+    parts = command_parts(command)
+    if not parts:
+        parts = [os.environ.get("EDITOR", "")]
+    if not parts or not parts[0]:
+        print("ltex: no editor configured; use `ltex config editor ...`")
+        return False
+    name = Path(parts[0]).name.lower()
+    if name.endswith(".exe"):
+        name = name[:-4]
+    location = f"{path}:{line}:{column}"
+    if name in {"code", "codium"}:
+        launch_parts = parts + ["--reuse-window", "--goto", location]
+    elif name in {"subl", "sublime_text"}:
+        launch_parts = parts + ["--reuse-window", location]
+    elif name in {"vim", "nvim", "neovim"}:
+        launch_parts = parts + [f"+call cursor({line}, {column})", str(path)]
+    else:
+        launch_parts = parts + [str(path)]
+        print(f"ltex: opening {path}:{line}:{column}; editor focus/reuse is not configured for {name!r}")
+    try:
+        subprocess.Popen(launch_parts)
+    except OSError as exc:
+        print(f"ltex: could not start editor: {exc}")
+        return False
+    return True
+
+
 def project_needs_build(root: Path, info: dict) -> bool:
     pdf = pdf_path(root, info)
     if not pdf.exists():
@@ -171,7 +239,7 @@ def watch(root: Path, config: dict[str, str], launch: bool = False, viewer: bool
         open_path(root, config["editor"], "editor")
     if viewer:
         # Both `watch` and `work` open the current PDF unless suppressed.
-        open_path(output_pdf, config["viewer"], "viewer")
+        open_viewer(output_pdf, config)
     changes: Queue[Path] = Queue()
     signatures: dict[Path, tuple[int, int]] = {}
 
@@ -241,11 +309,15 @@ def main(argv: list[str] | None = None) -> int:
     work_parser = sub.add_parser("work", help="open editor and PDF viewer, then watch", description="Open the whole project in the editor, open the PDF viewer, and watch for changes.")
     work_parser.add_argument("--no-viewer", action="store_true", help="do not open the configured PDF viewer")
     sub.add_parser("update", help="update ltex from GitHub", description="Update the installed ltex tool from its GitHub repository.")
+    inverse = sub.add_parser("inverse-search", help="open a source line from a PDF viewer", description="Open a source file and line supplied by a SyncTeX-capable PDF viewer.")
+    inverse.add_argument("file")
+    inverse.add_argument("line", type=int)
+    inverse.add_argument("column", nargs="?", type=int, default=1)
     cfg = sub.add_parser("config", help="get or set global configuration", description="Read or update global ltex configuration.")
     cfg.add_argument("key", nargs="?")
     cfg.add_argument("value", nargs="?")
     help_parser = sub.add_parser("help", help="show complete help", description="Show complete help or detailed help for one command.")
-    help_parser.add_argument("topic", nargs="?", choices=["init", "build", "watch", "open", "edit", "work", "update", "config"])
+    help_parser.add_argument("topic", nargs="?", choices=["init", "build", "watch", "open", "edit", "work", "update", "inverse-search", "config"])
     args = parser.parse_args(argv)
     if args.command == "help":
         if args.topic:
@@ -256,6 +328,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "update":
         return update()
     config = _config()
+    if args.command == "inverse-search":
+        return 0 if open_editor_at(Path(args.file).expanduser(), args.line, args.column, config["editor"]) else 1
     if args.command == "config":
         if args.key and args.key not in DEFAULTS:
             print(f"ltex: unknown config key {args.key!r}", file=sys.stderr)

@@ -153,6 +153,25 @@ ltex work
 - Rebuilds once per actual change and prints only warnings/errors in the
   terminal.
 
+For PDF-to-editor navigation, set the viewer to `zathura` or `okular`:
+
+```bash
+ltex config viewer zathura
+ltex config editor code
+```
+
+Zathura is configured automatically when ltex opens the PDF. For Okular, open
+Settings → Configure Okular → Editor, select Custom Text Editor, and use:
+
+```text
+ltex inverse-search %f %l %c
+```
+
+Then use Zathura's SyncTeX modifier click or Okular's Browse tool with
+Shift-click. Other viewers still work, but ltex warns that inverse search is
+unavailable. VS Code and Codium are opened with `--reuse-window --goto` so an
+existing editor window is focused when possible.
+
 `ltex watch` opens the configured PDF viewer by default while watching. Use
 `ltex watch --no-viewer` to keep the watcher in the terminal without launching
 the viewer. `ltex work --no-viewer` supports the same override. For Vim or
@@ -168,6 +187,8 @@ ltex watch                 Watch, rebuild, and open the PDF viewer
 ltex watch --no-viewer     Watch and rebuild without opening the viewer
 ltex open                  Open the main .tex file in the editor
 ltex edit                  Alias for ltex open
+ltex inverse-search FILE LINE [COLUMN]
+                            Open a source location from a PDF viewer
 ltex update                Update ltex from GitHub
 ltex config                Show or change global configuration
 ltex help                  Show complete help
@@ -203,6 +224,7 @@ the project entry point.
 ltex config                         # show all settings
 ltex config editor code             # editor command
 ltex config viewer zathura          # PDF viewer command
+ltex config inverse_search "ltex inverse-search"
 ltex config distribution miktex     # miktex, texlive, or tinytex
 ltex config engine latexmk          # latexmk is the default; pdflatex, xelatex, lualatex also work
 ltex config templates_dir PATH      # template directory

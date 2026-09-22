@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from ltex.build import missing_miktex_packages, project_arguments, resolve_engine
-from ltex.cli import main, open_path
+from ltex.cli import main, open_editor_at, open_path, open_viewer
 from ltex.update import GITHUB_SOURCE, update
 from ltex.project import find_main_file, main_file_path, metadata_path, project_info, write_project_info
 
@@ -129,6 +129,26 @@ class VersionTests(unittest.TestCase):
                 main(["--version"])
         self.assertEqual(exit_result.exception.code, 0)
         stdout.write.assert_called_once_with("ltex 1.0.4\n")
+
+
+class SyncTeXTests(unittest.TestCase):
+    def test_zathura_gets_inverse_search_callback(self):
+        with patch("ltex.cli.subprocess.Popen") as popen:
+            self.assertTrue(open_viewer(Path("build/main.pdf"), {
+                "viewer": "zathura",
+                "inverse_search": "ltex inverse-search",
+            }))
+        popen.assert_called_once_with([
+            "zathura",
+            "--synctex-editor-command",
+            'ltex inverse-search "%{input}" "%{line}" "%{column}"',
+            "build/main.pdf",
+        ])
+
+    def test_code_editor_reuses_window_and_jumps_to_location(self):
+        with patch("ltex.cli.subprocess.Popen") as popen:
+            self.assertTrue(open_editor_at(Path("main.tex"), 42, 8, "code"))
+        popen.assert_called_once_with(["code", "--reuse-window", "--goto", "main.tex:42:8"])
 
 
 if __name__ == "__main__":

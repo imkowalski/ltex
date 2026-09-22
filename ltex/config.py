@@ -14,6 +14,7 @@ VALID_ENGINES = {"pdflatex", "xelatex", "lualatex", "latexmk"}
 DEFAULTS = {
     "editor": "",
     "viewer": "",
+    "inverse_search": "ltex inverse-search",
     "distribution": "miktex",
     "engine": "latexmk",
     "templates_dir": "~/.config/ltex/templates",
