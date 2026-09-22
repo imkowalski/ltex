@@ -1,10 +1,11 @@
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from ltex.build import missing_miktex_packages, project_arguments, resolve_engine
-from ltex.cli import open_path
+from ltex.cli import main, open_path
 from ltex.project import find_main_file, main_file_path, metadata_path, project_info, write_project_info
 
 
@@ -66,6 +67,19 @@ class MainFileDetectionTests(unittest.TestCase):
         with TemporaryDirectory() as directory, patch("ltex.cli.subprocess.Popen") as popen:
             self.assertTrue(open_path(Path(directory), "nvim", "editor"))
             popen.assert_called_once_with(["nvim"], cwd=directory)
+
+    def test_init_vscode_writes_watch_tasks(self):
+        with TemporaryDirectory() as directory, patch("ltex.cli.build", return_value=True):
+            self.assertEqual(main(["init", directory, "--vscode"]), 0)
+            tasks_path = Path(directory) / ".vscode" / "tasks.json"
+            tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
+            self.assertEqual(tasks["version"], "2.0.0")
+            self.assertEqual([task["args"] for task in tasks["tasks"]], [["watch", "--no-viewer"], ["watch"]])
+
+    def test_init_without_vscode_does_not_write_tasks(self):
+        with TemporaryDirectory() as directory, patch("ltex.cli.build", return_value=True):
+            self.assertEqual(main(["init", directory]), 0)
+            self.assertFalse((Path(directory) / ".vscode" / "tasks.json").exists())
 
 
 if __name__ == "__main__":

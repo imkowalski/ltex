@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .build import build
 from .config import DEFAULTS, config_path, command_parts, load_config, save_config, validate_config
-from .project import find_main_file, find_root, main_file_path, pdf_path, project_info, write_project_info
+from .project import find_main_file, find_root, main_file_path, pdf_path, project_info, write_project_info, write_vscode_tasks
 from .template import copy_template
 
 WATCH_EXTENSIONS = {".tex", ".bib", ".sty", ".cls", ".png", ".jpg", ".jpeg", ".pdf"}
@@ -18,7 +18,7 @@ WATCH_EXTENSIONS = {".tex", ".bib", ".sty", ".cls", ".png", ".jpg", ".jpeg", ".p
 FULL_HELP = """ltex - Git-like workflow for LaTeX projects
 
 USAGE
-  ltex init [PATH] [--template NAME]   Create a project and build it
+  ltex init [PATH] [--template NAME] [--vscode]   Create a project and build it
   ltex build                           Build once
   ltex work                            Open editor + PDF viewer and watch
   ltex watch [--no-viewer]             Watch, rebuild, and open the PDF viewer
@@ -218,6 +218,7 @@ def main(argv: list[str] | None = None) -> int:
     init = sub.add_parser("init", help="initialize a project and build it", description="Create a LaTeX project, optionally from a template, and build it immediately.")
     init.add_argument("path", nargs="?", default=".")
     init.add_argument("--template")
+    init.add_argument("--vscode", action="store_true", help="add VS Code watch tasks to the project")
     sub.add_parser("build", help="compile the project once", description="Compile the project once and write .ltex/build.log.")
     watch_parser = sub.add_parser("watch", help="watch, rebuild, and open the PDF viewer", description="Watch LaTeX sources and assets, rebuilding after changes and opening the configured PDF viewer.")
     watch_parser.add_argument("--no-viewer", action="store_true", help="do not open the configured PDF viewer")
@@ -265,6 +266,8 @@ def main(argv: list[str] | None = None) -> int:
                 "template": args.template,
                 "arguments": [],
             })
+            if args.vscode:
+                write_vscode_tasks(root)
         except (OSError, FileNotFoundError) as exc:
             print(f"ltex: init failed: {exc}", file=sys.stderr); return 2
         print(f"Initialized empty ltex project in {root}")

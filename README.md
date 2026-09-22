@@ -122,6 +122,14 @@ ltex init thesis
 cd thesis
 ```
 
+Add VS Code tasks for watching the report with or without the PDF viewer:
+
+```bash
+ltex init thesis --vscode
+```
+
+This creates `.vscode/tasks.json` with both watch tasks.
+
 Start a working session:
 
 ```bash

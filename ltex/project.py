@@ -7,6 +7,40 @@ from pathlib import Path
 METADATA = ".ltex"
 PROJECT_FILE = "project.json"
 
+VSCODE_TASKS = {
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Watch report (No PDF Viewer)",
+            "type": "shell",
+            "command": "ltex",
+            "args": ["watch", "--no-viewer"],
+            "options": {"cwd": "${workspaceFolder}"},
+            "isBackground": True,
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "silent",
+                "panel": "dedicated",
+                "group": "report-watch",
+            },
+        },
+        {
+            "label": "Watch report (With PDF Viewer)",
+            "type": "shell",
+            "command": "ltex",
+            "args": ["watch"],
+            "options": {"cwd": "${workspaceFolder}"},
+            "isBackground": True,
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "silent",
+                "panel": "dedicated",
+                "group": "report-watch",
+            },
+        },
+    ],
+}
+
 
 def find_root(start: Path | None = None) -> Path:
     path = (start or Path.cwd()).resolve()
@@ -98,3 +132,9 @@ def pdf_path(root: Path, info: dict) -> Path:
 def write_project_info(root: Path, info: dict) -> None:
     (root / METADATA).mkdir(exist_ok=True)
     (root / PROJECT_FILE).write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
+
+
+def write_vscode_tasks(root: Path) -> None:
+    path = root / ".vscode" / "tasks.json"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps(VSCODE_TASKS, indent=2) + "\n", encoding="utf-8")
