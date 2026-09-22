@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ltex"
+version = "0.1.0"
+description = "A Git-like CLI for LaTeX projects"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["tomli>=2.0; python_version < '3.11'"]
+
+[project.optional-dependencies]
+watch = ["watchdog>=3.0"]
+
+[project.scripts]
+ltex = "ltex.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ltex*"]
