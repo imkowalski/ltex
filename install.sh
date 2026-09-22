@@ -4,6 +4,11 @@ set -eu
 # Python-agnostic installer: uv supplies and isolates the Python runtime.
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
+# Remove stale setuptools output so local source files are packaged afresh.
+if [ -d "$ROOT/build" ]; then
+    rm -rf -- "$ROOT/build"
+fi
+
 if command -v uv >/dev/null 2>&1; then
     UV=uv
 else
@@ -24,7 +29,7 @@ else
     fi
 fi
 
-"$UV" tool install --force --from "$ROOT" --with watchdog ltex
+"$UV" tool install --force --no-cache --reinstall-package ltex --from "$ROOT" --with watchdog ltex
 if ! "$UV" tool update-shell; then
     echo "ltex: could not update the shell PATH automatically." >&2
 fi

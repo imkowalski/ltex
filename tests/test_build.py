@@ -1,11 +1,13 @@
 import json
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from ltex.build import missing_miktex_packages, project_arguments, resolve_engine
-from ltex.cli import main, open_editor_at, open_path, open_viewer
+from ltex.cli import forward_search, main, open_editor_at, open_path, open_viewer
+from ltex.config import command_parts
 from ltex.update import GITHUB_SOURCE, update
 from ltex.project import find_main_file, main_file_path, metadata_path, project_info, write_project_info
 
@@ -75,7 +77,14 @@ class MainFileDetectionTests(unittest.TestCase):
             tasks_path = Path(directory) / ".vscode" / "tasks.json"
             tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
             self.assertEqual(tasks["version"], "2.0.0")
-            self.assertEqual([task["args"] for task in tasks["tasks"]], [["watch", "--no-viewer"], ["watch"]])
+            self.assertEqual(
+                [task["args"] for task in tasks["tasks"]],
+                [
+                    ["watch", "--no-viewer"],
+                    ["watch"],
+                    ["forward-search", "${file}", "${lineNumber}", "${columnNumber}"],
+                ],
+            )
 
     def test_init_without_vscode_does_not_write_tasks(self):
         with TemporaryDirectory() as directory, patch("ltex.cli.build", return_value=True):
@@ -128,10 +137,28 @@ class VersionTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as exit_result:
                 main(["--version"])
         self.assertEqual(exit_result.exception.code, 0)
-        stdout.write.assert_called_once_with("ltex 1.0.4\n")
+        stdout.write.assert_called_once_with("ltex 1.1.0\n")
 
 
 class SyncTeXTests(unittest.TestCase):
+    def test_posix_quoted_command_uses_shell_style_parsing(self):
+        self.assertEqual(command_parts('code --reuse-window "main file.tex"'), [
+            "code",
+            "--reuse-window",
+            "main file.tex",
+        ])
+
+    @unittest.skipIf(os.name != "nt", "Windows command-line parsing")
+    def test_windows_quoted_command_preserves_backslashes(self):
+        command = r'"C:\Users\YOUR_NAME\.local\bin\ltex.exe" inverse-search "%f" %l %c'
+        self.assertEqual(command_parts(command), [
+            r"C:\Users\YOUR_NAME\.local\bin\ltex.exe",
+            "inverse-search",
+            "%f",
+            "%l",
+            "%c",
+        ])
+
     def test_zathura_gets_inverse_search_callback(self):
         with patch("ltex.cli.subprocess.Popen") as popen:
             self.assertTrue(open_viewer(Path("build/main.pdf"), {
@@ -142,18 +169,50 @@ class SyncTeXTests(unittest.TestCase):
             "zathura",
             "--synctex-editor-command",
             'ltex inverse-search "%{input}" "%{line}"',
-            "build/main.pdf",
+            str(Path("build/main.pdf")),
+        ])
+
+    def test_forward_search_sends_synctex_position_to_zathura(self):
+        with TemporaryDirectory() as directory, patch("ltex.cli.subprocess.Popen") as popen:
+            root = Path(directory)
+            (root / ".ltex").mkdir()
+            source = root / "main.tex"
+            source.write_text("source", encoding="utf-8")
+            (root / "build").mkdir()
+            pdf = root / "build" / "main.pdf"
+            pdf.write_text("pdf", encoding="utf-8")
+            write_project_info(root, {"main_file": "main.tex", "pdf_file": "build/main.pdf", "arguments": []})
+            self.assertEqual(forward_search(source, 42, 8, {"viewer": "zathura"}), 0)
+        popen.assert_called_once_with([
+            "zathura",
+            "--synctex-forward",
+            f"42:7:{source.resolve()}",
+            str(pdf.resolve()),
         ])
 
     def test_code_editor_reuses_window_and_jumps_to_location(self):
-        with patch("ltex.cli.subprocess.Popen") as popen:
-            self.assertTrue(open_editor_at(Path("main.tex"), 42, 8, "code"))
+        with patch("ltex.cli.shutil.which", return_value=None):
+            with patch("ltex.cli.subprocess.Popen") as popen:
+                self.assertTrue(open_editor_at(Path("main.tex"), 42, 8, "code"))
         popen.assert_called_once_with(["code", "--reuse-window", "--goto", "main.tex:42:8"])
 
     def test_code_editor_normalizes_unknown_synctex_column(self):
-        with patch("ltex.cli.subprocess.Popen") as popen:
-            self.assertTrue(open_editor_at(Path("main.tex"), 42, -1, "code"))
+        with patch("ltex.cli.shutil.which", return_value=None):
+            with patch("ltex.cli.subprocess.Popen") as popen:
+                self.assertTrue(open_editor_at(Path("main.tex"), 42, -1, "code"))
         popen.assert_called_once_with(["code", "--reuse-window", "--goto", "main.tex:42:1"])
+
+    @unittest.skipUnless(os.name == "nt", "Windows command wrappers")
+    def test_code_cmd_wrapper_is_resolved_on_windows(self):
+        with patch("ltex.cli.shutil.which", return_value=r"C:\Program Files\Microsoft VS Code\bin\code.cmd"):
+            with patch("ltex.cli.subprocess.Popen") as popen:
+                self.assertTrue(open_editor_at(Path("main.tex"), 42, 8, "code"))
+        popen.assert_called_once_with([
+            r"C:\Program Files\Microsoft VS Code\bin\code.cmd",
+            "--reuse-window",
+            "--goto",
+            "main.tex:42:8",
+        ])
 
 
 if __name__ == "__main__":

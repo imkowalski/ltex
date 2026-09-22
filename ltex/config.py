@@ -73,4 +73,28 @@ def save_config(values: dict[str, str]) -> Path:
 
 
 def command_parts(command: str) -> list[str]:
-    return shlex.split(command) if command.strip() else []
+    if not command.strip():
+        return []
+    if os.name != "nt":
+        return shlex.split(command)
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        argc = ctypes.c_int()
+        shell32 = ctypes.windll.shell32
+        shell32.CommandLineToArgvW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_int)]
+        shell32.CommandLineToArgvW.restype = ctypes.POINTER(wintypes.LPWSTR)
+        ctypes.windll.kernel32.LocalFree.argtypes = [wintypes.HLOCAL]
+        ctypes.windll.kernel32.LocalFree.restype = wintypes.HLOCAL
+        argv = shell32.CommandLineToArgvW(command, ctypes.byref(argc))
+        if not argv:
+            raise OSError("CommandLineToArgvW returned NULL")
+        try:
+            return [argv[index] for index in range(argc.value)]
+        finally:
+            ctypes.windll.kernel32.LocalFree(argv)
+    except (AttributeError, OSError, ValueError):
+        # Last-resort fallback for non-standard Windows Python runtimes.
+        return shlex.split(command, posix=False)

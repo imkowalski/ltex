@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import os
 from queue import Empty, Queue
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -37,7 +39,8 @@ USAGE
   ltex open                            Open the main .tex file in the editor
   ltex edit                            Alias for `ltex open`
   ltex update                          Update ltex from its GitHub repository
-  ltex inverse-search FILE LINE [COL]  Open a source location from a PDF viewer
+  ltex inverse-search FILE LINE [COL]  Open a source location from a Linux PDF viewer
+  ltex forward-search FILE LINE [COL]  Jump from a source location to Zathura
   ltex config                          Read or change global configuration
 
 COMMON WORKFLOW
@@ -68,7 +71,6 @@ CONFIGURATION
   ltex config                         Show all settings
   ltex config editor code             Set the editor command
   ltex config viewer zathura          Set the PDF viewer command
-  ltex config inverse_search COMMAND  Set the PDF-to-editor callback command
   ltex config inverse_search COMMAND  Set the PDF-to-editor callback command
   ltex config distribution miktex    Set miktex, texlive, or tinytex
   ltex config engine latexmk          Set latexmk, pdflatex, xelatex, or lualatex
@@ -109,6 +111,16 @@ def is_terminal_editor(parts: list[str]) -> bool:
     return executable in TERMINAL_EDITORS
 
 
+def windows_command_parts(parts: list[str]) -> list[str]:
+    """Resolve Windows command wrappers such as VS Code's ``code.cmd``."""
+    if os.name != "nt" or not parts:
+        return parts
+    resolved = shutil.which(parts[0])
+    if resolved and Path(resolved).suffix.lower() in {".bat", ".cmd"}:
+        return [resolved, *parts[1:]]
+    return parts
+
+
 def open_path(path: Path, command: str, label: str) -> bool:
     parts = command_parts(command)
     if not parts:
@@ -127,6 +139,7 @@ def open_path(path: Path, command: str, label: str) -> bool:
         # portable and still exposes the whole multi-file project.
         launch_parts = parts
         launch_cwd = str(path)
+    launch_parts = windows_command_parts(launch_parts)
     try:
         subprocess.Popen(launch_parts, cwd=launch_cwd)
     except OSError as exc:
@@ -142,7 +155,12 @@ def viewer_name(command: str) -> str:
 
 def inverse_search_warning(command: str) -> None:
     name = viewer_name(command)
-    if name in {"zathura", "okular"} or not name:
+    if sys.platform.startswith("linux") and name in {"zathura", "okular"}:
+        return
+    if not name:
+        return
+    if not sys.platform.startswith("linux"):
+        print("ltex: inverse search is supported only on Linux with zathura or okular")
         return
     print(
         f"ltex: inverse search is unavailable for viewer {name!r}; "
@@ -158,22 +176,52 @@ def open_viewer(path: Path, config: dict[str, str]) -> bool:
         print("ltex: no viewer configured; use `ltex config viewer ...`")
         return False
     name = Path(parts[0]).name.lower()
-    if name == "zathura":
+    if sys.platform.startswith("linux") and name == "zathura":
         # Zathura's documented inverse-search placeholders are input and line.
         # ltex defaults the optional column to 1 for this callback.
         callback = f'{config["inverse_search"]} "%{{input}}" "%{{line}}"'
         parts += ["--synctex-editor-command", callback]
-    elif name != "okular":
+    elif not (sys.platform.startswith("linux") and name == "okular"):
         inverse_search_warning(command)
     try:
-        subprocess.Popen(parts + [str(path)])
+        subprocess.Popen(windows_command_parts(parts) + [str(path)])
     except OSError as exc:
         print(f"ltex: could not start viewer: {exc}")
         return False
     return True
 
 
-def open_editor_at(path: Path, line: int, column: int, command: str) -> bool:
+def forward_search(path: Path, line: int, column: int, config: dict[str, str]) -> int:
+    """Jump from a source location to its position in the Zathura PDF."""
+    if not sys.platform.startswith("linux"):
+        print("ltex: forward search is supported only on Linux with zathura")
+        return 2
+    source = path.expanduser().resolve()
+    try:
+        root = find_root(source.parent)
+    except FileNotFoundError as exc:
+        print(f"ltex: {exc}")
+        return 2
+    config_parts = command_parts(config["viewer"])
+    if not config_parts or Path(config_parts[0]).name.lower() != "zathura":
+        print("ltex: forward search requires `ltex config viewer zathura`")
+        return 2
+    pdf = pdf_path(root, project_info(root)).resolve()
+    if not pdf.exists():
+        print(f"ltex: PDF not found: {pdf}; run `ltex build` first")
+        return 1
+    line = max(1, line)
+    synctex_column = max(0, column - 1)
+    location = f"{line}:{synctex_column}:{source}"
+    try:
+        subprocess.Popen(windows_command_parts(config_parts + ["--synctex-forward", location, str(pdf)]))
+    except OSError as exc:
+        print(f"ltex: could not start zathura: {exc}")
+        return 1
+    return 0
+
+
+def open_editor_at(path: Path, line: int, column: int, command: str, debug: bool = False) -> bool:
     """Open a source location, reusing an existing GUI editor when supported."""
     parts = command_parts(command)
     if not parts:
@@ -198,6 +246,25 @@ def open_editor_at(path: Path, line: int, column: int, command: str) -> bool:
     else:
         launch_parts = parts + [str(path)]
         print(f"ltex: opening {path}:{line}:{column}; editor focus/reuse is not configured for {name!r}")
+    launch_parts = windows_command_parts(launch_parts)
+    if debug:
+        debug_lines = [
+            f"cwd={Path.cwd()}",
+            f"source={path} exists={path.exists()}",
+            f"line={line} column={column}",
+            f"configured_editor={command!r}",
+            f"parsed_editor={parts!r}",
+            f"resolved_editor={shutil.which(parts[0])!r}",
+            f"launch={launch_parts!r}",
+        ]
+        print("ltex debug: " + " | ".join(debug_lines))
+        debug_log = Path(tempfile.gettempdir()) / "ltex-inverse-search-debug.log"
+        try:
+            with debug_log.open("a", encoding="utf-8") as stream:
+                stream.write("ltex debug: " + " | ".join(debug_lines) + "\n")
+            print(f"ltex debug log: {debug_log}")
+        except OSError as exc:
+            print(f"ltex debug: could not write {debug_log}: {exc}")
     try:
         subprocess.Popen(launch_parts)
     except OSError as exc:
@@ -302,6 +369,7 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument("--debug", action="store_true", help="print inverse-search launch details")
     sub = parser.add_subparsers(dest="command", required=True)
     init = sub.add_parser("init", help="initialize a project and build it", description="Create a LaTeX project, optionally from a template, and build it immediately.")
     init.add_argument("path", nargs="?", default=".")
@@ -319,11 +387,16 @@ def main(argv: list[str] | None = None) -> int:
     inverse.add_argument("file")
     inverse.add_argument("line", type=int)
     inverse.add_argument("column", nargs="?", type=int, default=1)
+    inverse.add_argument("--debug", action="store_true", default=argparse.SUPPRESS, help="print launch details")
+    forward = sub.add_parser("forward-search", help="jump from source to Zathura", description="Jump from a source file and line to the corresponding position in Zathura.")
+    forward.add_argument("file")
+    forward.add_argument("line", type=int)
+    forward.add_argument("column", nargs="?", type=int, default=1)
     cfg = sub.add_parser("config", help="get or set global configuration", description="Read or update global ltex configuration.")
     cfg.add_argument("key", nargs="?")
     cfg.add_argument("value", nargs="?")
     help_parser = sub.add_parser("help", help="show complete help", description="Show complete help or detailed help for one command.")
-    help_parser.add_argument("topic", nargs="?", choices=["init", "build", "watch", "open", "edit", "work", "update", "inverse-search", "config"])
+    help_parser.add_argument("topic", nargs="?", choices=["init", "build", "watch", "open", "edit", "work", "update", "inverse-search", "forward-search", "config"])
     args = parser.parse_args(argv)
     if args.command == "help":
         if args.topic:
@@ -335,7 +408,12 @@ def main(argv: list[str] | None = None) -> int:
         return update()
     config = _config()
     if args.command == "inverse-search":
-        return 0 if open_editor_at(Path(args.file).expanduser(), args.line, args.column, config["editor"]) else 1
+        if not sys.platform.startswith("linux"):
+            print("ltex: inverse search is supported only on Linux with zathura or okular")
+            return 2
+        return 0 if open_editor_at(Path(args.file).expanduser(), args.line, args.column, config["editor"], args.debug) else 1
+    if args.command == "forward-search":
+        return forward_search(Path(args.file), args.line, args.column, config)
     if args.command == "config":
         if args.key and args.key not in DEFAULTS:
             print(f"ltex: unknown config key {args.key!r}", file=sys.stderr)

@@ -43,6 +43,15 @@ VSCODE_TASKS = {
                 "group": "report-watch",
             },
         },
+        {
+            "label": "Forward search in Zathura",
+            "type": "shell",
+            "command": "ltex",
+            "args": ["forward-search", "${file}", "${lineNumber}", "${columnNumber}"],
+            "options": {"cwd": "${workspaceFolder}"},
+            "problemMatcher": [],
+            "presentation": {"reveal": "never", "panel": "dedicated"},
+        },
     ],
 }
 

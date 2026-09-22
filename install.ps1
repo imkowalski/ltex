@@ -4,6 +4,12 @@ $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot ".")).Path
 $UvCommand = Get-Command uv -ErrorAction SilentlyContinue
 
+# Remove stale setuptools output so local source files are packaged afresh.
+$BuildDirectory = Join-Path $Root "build"
+if (Test-Path -LiteralPath $BuildDirectory) {
+    Remove-Item -LiteralPath $BuildDirectory -Recurse -Force
+}
+
 if ($null -eq $UvCommand) {
     Write-Host "uv was not found; installing the standalone uv tool manager..."
     irm https://astral.sh/uv/install.ps1 | iex
@@ -18,7 +24,7 @@ if ($null -eq $UvCommand) {
     throw "uv was installed, but its executable could not be located. Restart PowerShell and run install.ps1 again."
 }
 
-& $UvCommand.Source tool install --force --from $Root --with watchdog ltex
+& $UvCommand.Source tool install --force --no-cache --reinstall-package ltex --from $Root --with watchdog ltex
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $UvCommand.Source tool update-shell
 if ($LASTEXITCODE -ne 0) {
