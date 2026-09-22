@@ -8,6 +8,7 @@ import sys
 import time
 from pathlib import Path
 
+from . import __version__
 from .build import build
 from .config import DEFAULTS, config_path, command_parts, load_config, save_config, validate_config
 from .project import (
@@ -22,6 +23,7 @@ from .project import (
     write_vscode_tasks,
 )
 from .template import copy_template
+from .update import update
 
 WATCH_EXTENSIONS = {".tex", ".bib", ".sty", ".cls", ".png", ".jpg", ".jpeg", ".pdf"}
 
@@ -34,6 +36,7 @@ USAGE
   ltex watch [--no-viewer]             Watch, rebuild, and open the PDF viewer
   ltex open                            Open the main .tex file in the editor
   ltex edit                            Alias for `ltex open`
+  ltex update                          Update ltex from its GitHub repository
   ltex config                          Read or change global configuration
 
 COMMON WORKFLOW
@@ -224,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
         epilog="Run `ltex help` for the complete workflow guide.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
     init = sub.add_parser("init", help="initialize a project and build it", description="Create a LaTeX project, optionally from a template, and build it immediately.")
     init.add_argument("path", nargs="?", default=".")
@@ -236,11 +240,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("edit", help="alias for open", description="Alias for `ltex open`.")
     work_parser = sub.add_parser("work", help="open editor and PDF viewer, then watch", description="Open the whole project in the editor, open the PDF viewer, and watch for changes.")
     work_parser.add_argument("--no-viewer", action="store_true", help="do not open the configured PDF viewer")
+    sub.add_parser("update", help="update ltex from GitHub", description="Update the installed ltex tool from its GitHub repository.")
     cfg = sub.add_parser("config", help="get or set global configuration", description="Read or update global ltex configuration.")
     cfg.add_argument("key", nargs="?")
     cfg.add_argument("value", nargs="?")
     help_parser = sub.add_parser("help", help="show complete help", description="Show complete help or detailed help for one command.")
-    help_parser.add_argument("topic", nargs="?", choices=["init", "build", "watch", "open", "edit", "work", "config"])
+    help_parser.add_argument("topic", nargs="?", choices=["init", "build", "watch", "open", "edit", "work", "update", "config"])
     args = parser.parse_args(argv)
     if args.command == "help":
         if args.topic:
@@ -248,6 +253,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(FULL_HELP)
         return 0
+    if args.command == "update":
+        return update()
     config = _config()
     if args.command == "config":
         if args.key and args.key not in DEFAULTS:

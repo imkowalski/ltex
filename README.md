@@ -29,6 +29,15 @@ The installer adds the user tool directory to PATH and interactively asks for
 the default editor and PDF viewer. Open a new terminal afterward so the PATH
 change is loaded. Re-run the installer after updating this checkout.
 
+Once ltex is installed, update it to the latest version on GitHub with:
+
+```bash
+ltex update
+```
+
+This uses `uv` to replace the installed tool while preserving the `watchdog`
+dependency used by `ltex watch` and `ltex work`.
+
 For an existing Conda environment, the included `environment.yml` is also
 available:
 
@@ -159,6 +168,7 @@ ltex watch                 Watch, rebuild, and open the PDF viewer
 ltex watch --no-viewer     Watch and rebuild without opening the viewer
 ltex open                  Open the main .tex file in the editor
 ltex edit                  Alias for ltex open
+ltex update                Update ltex from GitHub
 ltex config                Show or change global configuration
 ltex help                  Show complete help
 ltex help work             Show command-specific help
