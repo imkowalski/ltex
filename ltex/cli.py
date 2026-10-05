@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from . import __version__
-from .build import build
+from .build import build, is_subfile
 from .config import DEFAULTS, config_path, command_parts, load_config, save_config, validate_config
 from .project import (
     find_main_file,
@@ -33,9 +33,9 @@ FULL_HELP = """ltex - Git-like workflow for LaTeX projects
 
 USAGE
   ltex init [PATH] [--template NAME] [--vscode]   Create a project and build it
-  ltex build                           Build once
+  ltex build [--file FILE]             Build the project or current subfile
   ltex work                            Open editor + PDF viewer and watch
-  ltex watch [--no-viewer]             Watch, rebuild, and open the PDF viewer
+  ltex watch [--no-viewer]             Watch, rebuild, and refresh one PDF viewer
   ltex open                            Open the main .tex file in the editor
   ltex edit                            Alias for `ltex open`
   ltex update                          Update ltex from its GitHub repository
@@ -63,9 +63,10 @@ WORK MODE
   then rebuilds once per actual source change. Compiler errors are printed in
   the terminal and also saved to .ltex/build.log.
 
-  `ltex watch` opens the PDF viewer by default. Use `ltex watch --no-viewer`
-  when only the terminal watcher is wanted. The same flag is accepted by
-  `ltex work`.
+  `ltex watch` opens the PDF viewer by default and keeps it on build/viewer.pdf,
+  refreshing that PDF after successful main or subfile builds. Use
+  `ltex watch --no-viewer` when only the terminal watcher is wanted. The same
+  flag is accepted by `ltex work`.
 
 CONFIGURATION
   ltex config                         Show all settings
@@ -293,6 +294,50 @@ def project_needs_build(root: Path, info: dict) -> bool:
     return False
 
 
+def publish_viewer_pdf(source: Path, viewer_pdf: Path) -> bool:
+    """Publish a build target at a stable path so the viewer can reload it."""
+    if not source.is_file():
+        return False
+    viewer_pdf.parent.mkdir(parents=True, exist_ok=True)
+    temporary_paths: list[Path] = []
+    try:
+        # Replace atomically so a viewer never reads a half-copied PDF.
+        with tempfile.NamedTemporaryFile(
+            prefix=f".{viewer_pdf.stem}.", suffix=viewer_pdf.suffix,
+            dir=viewer_pdf.parent, delete=False
+        ) as temporary:
+            temp_pdf = Path(temporary.name)
+        temporary_paths.append(temp_pdf)
+        shutil.copy2(source, temp_pdf)
+
+        # Keep SyncTeX data paired with the PDF that is currently being shown.
+        for suffix in (".synctex.gz", ".synctex"):
+            source_sidecar = source.with_suffix(suffix)
+            viewer_sidecar = viewer_pdf.with_suffix(suffix)
+            if source_sidecar.is_file():
+                with tempfile.NamedTemporaryFile(
+                    prefix=f".{viewer_sidecar.name}.", suffix=".tmp",
+                    dir=viewer_sidecar.parent, delete=False
+                ) as temporary:
+                    temp_sidecar = Path(temporary.name)
+                temporary_paths.append(temp_sidecar)
+                shutil.copy2(source_sidecar, temp_sidecar)
+                os.replace(temp_sidecar, viewer_sidecar)
+                temporary_paths.remove(temp_sidecar)
+            else:
+                viewer_sidecar.unlink(missing_ok=True)
+
+        os.replace(temp_pdf, viewer_pdf)
+        temporary_paths.remove(temp_pdf)
+        return True
+    except OSError as exc:
+        print(f"ltex: could not refresh viewer PDF {viewer_pdf}: {exc}")
+        return False
+    finally:
+        for temporary in temporary_paths:
+            temporary.unlink(missing_ok=True)
+
+
 def watch(root: Path, config: dict[str, str], launch: bool = False, viewer: bool = True) -> int:
     try:
         from watchdog.events import FileSystemEventHandler
@@ -302,6 +347,7 @@ def watch(root: Path, config: dict[str, str], launch: bool = False, viewer: bool
         return 2
     info = project_info(root)
     output_pdf = pdf_path(root, info).resolve()
+    viewer_pdf = (root / "build" / "viewer.pdf").resolve()
     if project_needs_build(root, info):
         build(root, config, quiet=launch)
     else:
@@ -311,8 +357,9 @@ def watch(root: Path, config: dict[str, str], launch: bool = False, viewer: bool
         # the editor.
         open_path(root, config["editor"], "editor")
     if viewer:
-        # Both `watch` and `work` open the current PDF unless suppressed.
-        open_viewer(output_pdf, config)
+        # Keep the viewer on one path while watch switches between build targets.
+        if publish_viewer_pdf(output_pdf, viewer_pdf):
+            open_viewer(viewer_pdf, config)
     changes: Queue[Path] = Queue()
     signatures: dict[Path, tuple[int, int]] = {}
 
@@ -343,18 +390,37 @@ def watch(root: Path, config: dict[str, str], launch: bool = False, viewer: bool
     try:
         while True:
             try:
-                changes.get(timeout=1)
+                first_change = changes.get(timeout=1)
             except Empty:
                 continue
             # Editors often emit several events while saving; coalesce them into
-            # one build after the write burst has settled.
+            # one build after the write burst has settled. A single standalone
+            # subfile can be built by itself; multiple changes and all other
+            # files rebuild the configured project entrypoint.
             time.sleep(0.3)
+            changed = {first_change}
             while True:
                 try:
-                    changes.get_nowait()
+                    changed.add(changes.get_nowait())
                 except Empty:
                     break
-            build(root, config, quiet=launch)
+            changed_tex = [path for path in changed if path.suffix.lower() == ".tex"]
+            main_source = main_file_path(root, info).resolve()
+            subfile = (
+                changed_tex[0]
+                if len(changed) == 1
+                and len(changed_tex) == 1
+                and changed_tex[0].resolve() != main_source
+                and is_subfile(changed_tex[0])
+                else None
+            )
+            next_preview = output_pdf
+            if subfile is not None:
+                relative = subfile.resolve().relative_to(root.resolve())
+                next_preview = (root / "build" / "subfiles" / relative.parent / relative.with_suffix(".pdf").name).resolve()
+            succeeded = build(root, config, quiet=launch, source_file=subfile)
+            if succeeded and viewer:
+                publish_viewer_pdf(next_preview, viewer_pdf)
     except KeyboardInterrupt:
         observer.stop()
     observer.join()
@@ -375,8 +441,9 @@ def main(argv: list[str] | None = None) -> int:
     init.add_argument("path", nargs="?", default=".")
     init.add_argument("--template")
     init.add_argument("--vscode", action="store_true", help="add VS Code watch tasks to the project")
-    sub.add_parser("build", help="compile the project once", description="Compile the project once and write .ltex/build.log.")
-    watch_parser = sub.add_parser("watch", help="watch, rebuild, and open the PDF viewer", description="Watch LaTeX sources and assets, rebuilding after changes and opening the configured PDF viewer.")
+    build_parser = sub.add_parser("build", help="compile the project or a subfile", description="Compile the project, or compile FILE on its own when it uses the subfiles document class.")
+    build_parser.add_argument("--file", help="active .tex file; standalone subfiles are compiled alone, other files build the project")
+    watch_parser = sub.add_parser("watch", help="watch, rebuild, and refresh one PDF viewer", description="Watch LaTeX sources and assets, rebuilding after changes and refreshing one configured PDF viewer.")
     watch_parser.add_argument("--no-viewer", action="store_true", help="do not open the configured PDF viewer")
     sub.add_parser("open", help="open the main .tex file in the editor", description="Open the project main .tex file in the configured editor.")
     sub.add_parser("edit", help="alias for open", description="Alias for `ltex open`.")
@@ -451,7 +518,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if build(root, config) else 1
     try: root = find_root()
     except FileNotFoundError as exc: print(f"ltex: {exc}", file=sys.stderr); return 2
-    if args.command == "build": return 0 if build(root, config) else 1
+    if args.command == "build":
+        source_file = Path(args.file).expanduser() if args.file else None
+        return 0 if build(root, config, source_file=source_file) else 1
     if args.command in {"open", "edit"}:
         return 0 if open_path(main_file_path(root, project_info(root)), config["editor"], "editor") else 1
     if args.command == "watch": return watch(root, config, viewer=not args.no_viewer)

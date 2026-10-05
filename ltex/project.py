@@ -52,6 +52,15 @@ VSCODE_TASKS = {
             "problemMatcher": [],
             "presentation": {"reveal": "never", "panel": "dedicated"},
         },
+        {
+            "label": "Build current TeX file",
+            "type": "shell",
+            "command": "ltex",
+            "args": ["build", "--file", "${file}"],
+            "options": {"cwd": "${workspaceFolder}"},
+            "problemMatcher": [],
+            "presentation": {"reveal": "always", "panel": "dedicated"},
+        },
     ],
 }
 

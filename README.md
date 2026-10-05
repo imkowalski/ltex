@@ -133,6 +133,10 @@ ltex init thesis --vscode
 ```
 
 This creates `.vscode/tasks.json` with both watch tasks.
+It also adds **Build current TeX file**. Run it with a `.tex` file open to
+compile that file on its own when it declares the `subfiles` document class;
+ordinary section files still build the project entrypoint, as they do when
+building the project normally.
 
 Start a working session:
 
@@ -150,8 +154,14 @@ ltex work
 - Writes the PDF, `.aux`, `.log`, and other generated LaTeX files under
   `build/`; the full ltex log remains hidden at `.ltex/build.log`.
 - Watches `.tex`, `.bib`, `.sty`, `.cls`, and common image files.
-- Rebuilds once per actual change and prints only warnings/errors in the
-  terminal.
+- Rebuilds once per saved change burst. When one standalone `subfiles` source
+  changes, it compiles that subfile; changes to the main file, ordinary
+  included files, assets, or multiple files compile the whole project. Use
+  `ltex build` whenever you want to explicitly build the whole project.
+- With the PDF viewer enabled, watch opens `build/viewer.pdf` once and refreshes
+  that same file after successful main or subfile builds, keeping the viewer on
+  one document path.
+- Prints only warnings/errors in the terminal.
 
 ## PDF-to-editor navigation on Linux
 
@@ -250,6 +260,7 @@ Other commands:
 
 ```text
 ltex build                 Build once
+ltex build --file FILE     Build FILE if it is a subfile; otherwise build the project
 ltex watch                 Watch, rebuild, and open the PDF viewer
 ltex watch --no-viewer     Watch and rebuild without opening the viewer
 ltex open                  Open the main .tex file in the editor
@@ -263,6 +274,37 @@ ltex config                Show or change global configuration
 ltex help                  Show complete help
 ltex help work             Show command-specific help
 ```
+
+### Compile a standalone subfile
+
+To compile one chapter or section independently, use the LaTeX `subfiles`
+package. Load it in the project preamble and declare it as the document class
+in files that should build standalone:
+
+```latex
+% main.tex
+\documentclass{article}
+\usepackage{subfiles}
+```
+
+```latex
+% chapters/results.tex
+\documentclass[../main.tex]{subfiles}
+\begin{document}
+This chapter can be compiled on its own.
+\end{document}
+```
+
+With `chapters/results.tex` open, run **Build current TeX file** in VS Code,
+or run `ltex build --file chapters/results.tex`. ltex detects the
+`subfiles` document class and writes its PDF and auxiliary files under
+`build/subfiles/`. Standalone builds search both the subfile directory and
+the project tree for TeX and bibliography files. TeX paths written explicitly
+relative to a subfile, such as image paths, still need the `\subfix` command
+provided by the `subfiles` package. In watch mode, saving a single standalone
+subfile compiles that subfile; saving the main file or an ordinary included
+file compiles the whole project. `ltex build` always explicitly builds the
+whole project.
 
 ## Templates
 
