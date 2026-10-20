@@ -137,7 +137,7 @@ class VersionTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as exit_result:
                 main(["--version"])
         self.assertEqual(exit_result.exception.code, 0)
-        stdout.write.assert_called_once_with("ltex 1.1.0\n")
+        stdout.write.assert_called_once_with("ltex 1.1.1\n")
 
 
 class SyncTeXTests(unittest.TestCase):

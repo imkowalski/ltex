@@ -65,6 +65,7 @@ def install_miktex_packages(packages: list[str], environment: dict[str, str]) ->
         result = subprocess.run(
             [miktex, "packages", "install", *packages],
             text=True,
+            errors="replace",
             capture_output=True,
             env=environment,
             timeout=60,
@@ -228,12 +229,12 @@ def build(root: Path, config: dict[str, str], quiet: bool = False) -> bool:
         attempted_packages: set[str] = set()
 
         def run_compiler():
-            result = subprocess.run(command, cwd=root, env=environment, text=True, capture_output=True, check=False)
+            result = subprocess.run(command, cwd=root, env=environment, text=True, errors="replace", capture_output=True, check=False)
             combined_output = result.stdout + "\n" + result.stderr
             if result.returncode and "package-manager.lock" in combined_output:
                 print("MiKTeX package manager is busy; retrying once...")
                 time.sleep(1)
-                result = subprocess.run(command, cwd=root, env=environment, text=True, capture_output=True, check=False)
+                result = subprocess.run(command, cwd=root, env=environment, text=True, errors="replace", capture_output=True, check=False)
             return result
 
         result = run_compiler()
