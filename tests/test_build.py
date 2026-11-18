@@ -1,11 +1,12 @@
 import json
 import os
+import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from ltex.build import missing_miktex_packages, project_arguments, resolve_engine
+from ltex.build import build, missing_miktex_packages, project_arguments, resolve_engine
 from ltex.cli import forward_search, main, open_editor_at, open_path, open_viewer
 from ltex.config import command_parts
 from ltex.update import GITHUB_SOURCE, update
@@ -103,6 +104,46 @@ class MainFileDetectionTests(unittest.TestCase):
             self.assertTrue((root / ".ltex" / ".gitkeep").exists())
 
 
+class LatexmkRetryTests(unittest.TestCase):
+    def test_failed_build_retries_without_cleaning_auxiliary_files(self):
+        for source_file in (None, "chapter.tex"):
+            with self.subTest(source_file=source_file), TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / ".ltex").mkdir()
+                (root / "main.tex").write_text(r"\documentclass{article}\begin{document}\end{document}")
+                (root / "chapter.tex").write_text(r"\documentclass[main.tex]{subfiles}\begin{document}\end{document}")
+                write_project_info(root, {"main_file": "main.tex", "pdf_file": "build/main.pdf", "arguments": []})
+                state = root / ".ltex" / "state.json"
+                if source_file:
+                    state = root / ".ltex" / "subfile-state" / "chapter.tex.json"
+                state.parent.mkdir(exist_ok=True)
+                state.write_text(json.dumps({"success": False}))
+                result = subprocess.CompletedProcess([], 0, "", "")
+                with patch("ltex.build.resolve_engine", return_value=["latexmk"]), patch(
+                    "ltex.build.subprocess.run", return_value=result
+                ) as run:
+                    target = root / source_file if source_file else None
+                    self.assertTrue(build(root, {"engine": "latexmk", "distribution": "texlive"}, quiet=True, source_file=target))
+                arguments = run.call_args.args[0]
+                self.assertIn("-g", arguments)
+                self.assertNotIn("-gg", arguments)
+
+    def test_successful_build_keeps_incremental_latexmk_behavior(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".ltex").mkdir()
+            (root / "main.tex").write_text(r"\documentclass{article}\begin{document}\end{document}")
+            write_project_info(root, {"main_file": "main.tex", "pdf_file": "build/main.pdf", "arguments": []})
+            (root / ".ltex" / "state.json").write_text(json.dumps({"success": True}))
+            result = subprocess.CompletedProcess([], 0, "", "")
+            with patch("ltex.build.resolve_engine", return_value=["latexmk"]), patch(
+                "ltex.build.subprocess.run", return_value=result
+            ) as run:
+                self.assertTrue(build(root, {"engine": "latexmk", "distribution": "texlive"}, quiet=True))
+            self.assertNotIn("-g", run.call_args.args[0])
+            self.assertNotIn("-gg", run.call_args.args[0])
+
+
 class UpdateTests(unittest.TestCase):
     def test_update_installs_latest_github_version(self):
         completed = type("Completed", (), {"returncode": 0})()
@@ -138,7 +179,7 @@ class VersionTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as exit_result:
                 main(["--version"])
         self.assertEqual(exit_result.exception.code, 0)
-        stdout.write.assert_called_once_with("ltex 1.2.0\n")
+        stdout.write.assert_called_once_with("ltex 1.2.1\n")
 
 
 class SyncTeXTests(unittest.TestCase):

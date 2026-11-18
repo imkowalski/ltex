@@ -408,7 +408,9 @@ def watch(root: Path, config: dict[str, str], launch: bool = False, viewer: bool
 
     class Handler(FileSystemEventHandler):
         def on_any_event(self, event):
-            if event.is_directory:
+            # Linux also emits opened/closed events when the compiler reads
+            # inputs. Only writes should queue another build.
+            if event.is_directory or event.event_type not in {"created", "modified", "moved"}:
                 return
             enqueue(getattr(event, "dest_path", event.src_path) if event.event_type == "moved" else event.src_path)
     observer = Observer()

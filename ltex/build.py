@@ -272,20 +272,23 @@ def build(root: Path, config: dict[str, str], quiet: bool = False, source_file: 
     if engine == "latexmk":
         # Keep retrying after a previous failed latexmk run; otherwise
         # latexmk can report "nothing to do" and hide a newly fixed package.
-        force_full = subfile_build and not state.exists()
+        force_rebuild = subfile_build and not state.exists()
         try:
             state_data = json.loads(state.read_text(encoding="utf-8"))
-            force_full = state_data.get("success") is False
+            force_rebuild = state_data.get("success") is False
         except (OSError, json.JSONDecodeError):
-            force_full = subfile_build
+            force_rebuild = subfile_build
         latexmk_options = ["-pdf"]
         if subfile_build:
             # Resolve relative paths in \documentclass[../main.tex]{subfiles}
             # from the subfile directory while still reading the project's
             # .latexmkrc from cwd=root.
             latexmk_options.append("-cd")
-        if force_full:
-            latexmk_options.append("-gg")
+        if force_rebuild:
+            # Retry compilation without deleting auxiliary files. A clean
+            # rebuild (-gg) throws away references and bibliography state and
+            # can turn each retry of a large report into several full passes.
+            latexmk_options.append("-g")
         command = executable + latexmk_options + [*arguments, "-halt-on-error"]
         if config["distribution"] == "miktex":
             command.append("-latexoption=-enable-installer")
