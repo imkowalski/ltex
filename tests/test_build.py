@@ -84,7 +84,6 @@ class MainFileDetectionTests(unittest.TestCase):
                     ["watch", "--no-viewer"],
                     ["watch"],
                     ["forward-search", "${file}", "${lineNumber}", "${columnNumber}"],
-                    ["build", "--file", "${file}"],
                 ],
             )
 
@@ -104,29 +103,51 @@ class MainFileDetectionTests(unittest.TestCase):
             self.assertTrue((root / ".ltex" / ".gitkeep").exists())
 
 
-class LatexmkRetryTests(unittest.TestCase):
-    def test_failed_build_retries_without_cleaning_auxiliary_files(self):
-        for source_file in (None, "chapter.tex"):
-            with self.subTest(source_file=source_file), TemporaryDirectory() as directory:
+class ProjectBuildTests(unittest.TestCase):
+    def test_build_from_a_chapter_directory_compiles_the_project_main(self):
+        for engine in ("latexmk", "pdflatex"):
+            with self.subTest(engine=engine), TemporaryDirectory() as directory:
                 root = Path(directory)
                 (root / ".ltex").mkdir()
-                (root / "main.tex").write_text(r"\documentclass{article}\begin{document}\end{document}")
-                (root / "chapter.tex").write_text(r"\documentclass[main.tex]{subfiles}\begin{document}\end{document}")
-                write_project_info(root, {"main_file": "main.tex", "pdf_file": "build/main.pdf", "arguments": []})
-                state = root / ".ltex" / "state.json"
-                if source_file:
-                    state = root / ".ltex" / "subfile-state" / "chapter.tex.json"
-                state.parent.mkdir(exist_ok=True)
-                state.write_text(json.dumps({"success": False}))
+                (root / "setup").mkdir()
+                (root / "setup/main.tex").write_text(r"\documentclass{article}\begin{document}\end{document}")
+                chapter_dir = root / "chapters"
+                chapter_dir.mkdir()
+                (chapter_dir / "chapter.tex").write_text(r"\documentclass[../setup/main.tex]{subfiles}\begin{document}\end{document}")
+                write_project_info(root, {"main_file": "setup/main.tex", "pdf_file": "build/main.pdf", "arguments": []})
                 result = subprocess.CompletedProcess([], 0, "", "")
-                with patch("ltex.build.resolve_engine", return_value=["latexmk"]), patch(
+                config = {"engine": engine, "distribution": "texlive"}
+                with patch("ltex.cli._config", return_value=config), patch(
+                    "ltex.cli.Path.cwd", return_value=chapter_dir
+                ), patch("ltex.build.resolve_engine", return_value=[engine]), patch(
                     "ltex.build.subprocess.run", return_value=result
                 ) as run:
-                    target = root / source_file if source_file else None
-                    self.assertTrue(build(root, {"engine": "latexmk", "distribution": "texlive"}, quiet=True, source_file=target))
-                arguments = run.call_args.args[0]
-                self.assertIn("-g", arguments)
-                self.assertNotIn("-gg", arguments)
+                    self.assertEqual(main(["build"]), 0)
+                self.assertEqual(run.call_args.args[0][-1], "setup/main.tex")
+                self.assertEqual(run.call_args.kwargs["cwd"], root)
+                self.assertFalse((root / "build/subfiles").exists())
+
+    def test_build_no_longer_accepts_file_selection(self):
+        with patch("sys.stderr"), self.assertRaises(SystemExit) as result:
+            main(["build", "--file", "chapter.tex"])
+        self.assertEqual(result.exception.code, 2)
+
+    def test_failed_build_retries_without_cleaning_auxiliary_files(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".ltex").mkdir()
+            (root / "main.tex").write_text(r"\documentclass{article}\begin{document}\end{document}")
+            write_project_info(root, {"main_file": "main.tex", "pdf_file": "build/main.pdf", "arguments": []})
+            state = root / ".ltex" / "state.json"
+            state.write_text(json.dumps({"success": False}))
+            result = subprocess.CompletedProcess([], 0, "", "")
+            with patch("ltex.build.resolve_engine", return_value=["latexmk"]), patch(
+                "ltex.build.subprocess.run", return_value=result
+            ) as run:
+                self.assertTrue(build(root, {"engine": "latexmk", "distribution": "texlive"}, quiet=True))
+            arguments = run.call_args.args[0]
+            self.assertIn("-g", arguments)
+            self.assertNotIn("-gg", arguments)
 
     def test_successful_build_keeps_incremental_latexmk_behavior(self):
         with TemporaryDirectory() as directory:
@@ -179,7 +200,7 @@ class VersionTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as exit_result:
                 main(["--version"])
         self.assertEqual(exit_result.exception.code, 0)
-        stdout.write.assert_called_once_with("ltex 1.2.1\n")
+        stdout.write.assert_called_once_with("ltex 1.3.0\n")
 
 
 class SyncTeXTests(unittest.TestCase):

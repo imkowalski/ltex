@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from . import __version__
-from .build import build, is_subfile
+from .build import build
 from .config import DEFAULTS, config_path, command_parts, load_config, save_config, validate_config
 from .neovim import remote_command as neovim_remote_command, startup_arguments as neovim_startup_arguments
 from .project import (
@@ -34,7 +34,7 @@ FULL_HELP = """ltex - Git-like workflow for LaTeX projects
 
 USAGE
   ltex init [PATH] [--template NAME] [--vscode]   Create a project and build it
-  ltex build [--file FILE]             Build the project or current subfile
+  ltex build                           Build the project
   ltex work                            Open editor + PDF viewer and watch
   ltex watch [--no-viewer]             Watch, rebuild, and refresh one PDF viewer
   ltex open                            Open the main .tex file in the editor
@@ -65,7 +65,7 @@ WORK MODE
   the terminal and also saved to .ltex/build.log.
 
   `ltex watch` opens the PDF viewer by default and keeps it on build/viewer.pdf,
-  refreshing that PDF after successful main or subfile builds. Use
+  refreshing that PDF after successful project builds. Use
   `ltex watch --no-viewer` when only the terminal watcher is wanted. The same
   flag is accepted by `ltex work`.
 
@@ -420,37 +420,20 @@ def watch(root: Path, config: dict[str, str], launch: bool = False, viewer: bool
     try:
         while True:
             try:
-                first_change = changes.get(timeout=1)
+                changes.get(timeout=1)
             except Empty:
                 continue
             # Editors often emit several events while saving; coalesce them into
-            # one build after the write burst has settled. A single standalone
-            # subfile can be built by itself; multiple changes and all other
-            # files rebuild the configured project entrypoint.
+            # one project build after the write burst has settled.
             time.sleep(0.3)
-            changed = {first_change}
             while True:
                 try:
-                    changed.add(changes.get_nowait())
+                    changes.get_nowait()
                 except Empty:
                     break
-            changed_tex = [path for path in changed if path.suffix.lower() == ".tex"]
-            main_source = main_file_path(root, info).resolve()
-            subfile = (
-                changed_tex[0]
-                if len(changed) == 1
-                and len(changed_tex) == 1
-                and changed_tex[0].resolve() != main_source
-                and is_subfile(changed_tex[0])
-                else None
-            )
-            next_preview = output_pdf
-            if subfile is not None:
-                relative = subfile.resolve().relative_to(root.resolve())
-                next_preview = (root / "build" / "subfiles" / relative.parent / relative.with_suffix(".pdf").name).resolve()
-            succeeded = build(root, config, quiet=launch, source_file=subfile)
+            succeeded = build(root, config, quiet=launch)
             if succeeded and viewer:
-                publish_viewer_pdf(next_preview, viewer_pdf)
+                publish_viewer_pdf(output_pdf, viewer_pdf)
     except KeyboardInterrupt:
         observer.stop()
     observer.join()
@@ -471,8 +454,7 @@ def main(argv: list[str] | None = None) -> int:
     init.add_argument("path", nargs="?", default=".")
     init.add_argument("--template")
     init.add_argument("--vscode", action="store_true", help="add VS Code watch tasks to the project")
-    build_parser = sub.add_parser("build", help="compile the project or a subfile", description="Compile the project, or compile FILE on its own when it uses the subfiles document class.")
-    build_parser.add_argument("--file", help="active .tex file; standalone subfiles are compiled alone, other files build the project")
+    sub.add_parser("build", help="compile the project", description="Compile the configured project main file and write .ltex/build.log.")
     watch_parser = sub.add_parser("watch", help="watch, rebuild, and refresh one PDF viewer", description="Watch LaTeX sources and assets, rebuilding after changes and refreshing one configured PDF viewer.")
     watch_parser.add_argument("--no-viewer", action="store_true", help="do not open the configured PDF viewer")
     sub.add_parser("open", help="open the main .tex file in the editor", description="Open the project main .tex file in the configured editor.")
@@ -552,8 +534,7 @@ def main(argv: list[str] | None = None) -> int:
     try: root = find_root()
     except FileNotFoundError as exc: print(f"ltex: {exc}", file=sys.stderr); return 2
     if args.command == "build":
-        source_file = Path(args.file).expanduser() if args.file else None
-        return 0 if build(root, config, source_file=source_file) else 1
+        return 0 if build(root, config) else 1
     if args.command in {"open", "edit"}:
         return 0 if open_path(main_file_path(root, project_info(root)), config["editor"], "editor") else 1
     if args.command == "watch": return watch(root, config, viewer=not args.no_viewer)
