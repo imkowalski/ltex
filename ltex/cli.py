@@ -13,6 +13,7 @@ from pathlib import Path
 from . import __version__
 from .build import build, is_subfile
 from .config import DEFAULTS, config_path, command_parts, load_config, save_config, validate_config
+from .neovim import remote_command as neovim_remote_command, startup_arguments as neovim_startup_arguments
 from .project import (
     find_main_file,
     find_root,
@@ -73,6 +74,7 @@ CONFIGURATION
   ltex config editor code             Set the editor command
   ltex config viewer zathura          Set the PDF viewer command
   ltex config inverse_search COMMAND  Set the PDF-to-editor callback command
+  ltex config nvim_server ADDRESS     Connect inverse search to an existing Neovim
   ltex config distribution miktex    Set miktex, texlive, or tinytex
   ltex config engine latexmk          Set latexmk, pdflatex, xelatex, or lualatex
   ltex config templates_dir PATH      Set the template directory
@@ -140,6 +142,8 @@ def open_path(path: Path, command: str, label: str) -> bool:
         # portable and still exposes the whole multi-file project.
         launch_parts = parts
         launch_cwd = str(path)
+    if label == "editor" and Path(parts[0]).name.lower() in {"nvim", "neovim"}:
+        launch_parts = parts + neovim_startup_arguments(path) + launch_parts[len(parts):]
     launch_parts = windows_command_parts(launch_parts)
     try:
         subprocess.Popen(launch_parts, cwd=launch_cwd)
@@ -222,8 +226,11 @@ def forward_search(path: Path, line: int, column: int, config: dict[str, str]) -
     return 0
 
 
-def open_editor_at(path: Path, line: int, column: int, command: str, debug: bool = False) -> bool:
-    """Open a source location, reusing an existing GUI editor when supported."""
+def open_editor_at(
+    path: Path, line: int, column: int, command: str, debug: bool = False,
+    nvim_server: str = "",
+) -> bool:
+    """Open a source location, reusing an existing editor when supported."""
     parts = command_parts(command)
     if not parts:
         parts = [os.environ.get("EDITOR", "")]
@@ -242,7 +249,16 @@ def open_editor_at(path: Path, line: int, column: int, command: str, debug: bool
         launch_parts = parts + ["--reuse-window", "--goto", location]
     elif name in {"subl", "sublime_text"}:
         launch_parts = parts + ["--reuse-window", location]
-    elif name in {"vim", "nvim", "neovim"}:
+    elif name in {"nvim", "neovim"}:
+        launch_parts = neovim_remote_command(path, line, column, parts, nvim_server)
+        if launch_parts is None:
+            print(
+                "ltex: no Neovim server found; open the editor with `ltex open` "
+                "or `ltex work`, or set `ltex config nvim_server ADDRESS` "
+                "to an existing Neovim :echo v:servername value"
+            )
+            return False
+    elif name == "vim":
         launch_parts = parts + [f"+call cursor({line}, {column})", str(path)]
     else:
         launch_parts = parts + [str(path)]
@@ -267,7 +283,19 @@ def open_editor_at(path: Path, line: int, column: int, command: str, debug: bool
         except OSError as exc:
             print(f"ltex debug: could not write {debug_log}: {exc}")
     try:
-        subprocess.Popen(launch_parts)
+        if name in {"nvim", "neovim"}:
+            result = subprocess.run(
+                launch_parts, capture_output=True, text=True, errors="replace", timeout=5,
+            )
+            if result.returncode:
+                print(f"ltex: could not contact Neovim: {result.stderr.strip() or result.stdout.strip()}")
+                print("ltex: reopen with `ltex open` or check `ltex config nvim_server`")
+                return False
+        else:
+            subprocess.Popen(launch_parts)
+    except subprocess.TimeoutExpired:
+        print("ltex: Neovim did not respond to inverse search within 5 seconds")
+        return False
     except OSError as exc:
         print(f"ltex: could not start editor: {exc}")
         return False
@@ -478,7 +506,10 @@ def main(argv: list[str] | None = None) -> int:
         if not sys.platform.startswith("linux"):
             print("ltex: inverse search is supported only on Linux with zathura or okular")
             return 2
-        return 0 if open_editor_at(Path(args.file).expanduser(), args.line, args.column, config["editor"], args.debug) else 1
+        return 0 if open_editor_at(
+            Path(args.file).expanduser(), args.line, args.column, config["editor"],
+            args.debug, nvim_server=config["nvim_server"],
+        ) else 1
     if args.command == "forward-search":
         return forward_search(Path(args.file), args.line, args.column, config)
     if args.command == "config":

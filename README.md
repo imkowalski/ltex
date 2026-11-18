@@ -187,6 +187,34 @@ will open or focus VS Code at that source location. Codium works the same way:
 ltex config editor codium
 ```
 
+For Neovim, select it as the editor and open the project through ltex:
+
+```bash
+ltex config editor nvim
+ltex config viewer zathura
+ltex open
+```
+
+Run `ltex watch` in another terminal. Ctrl-clicking PDF text in Zathura now
+opens the source file at the matching line in that running Neovim session.
+`ltex open` and `ltex work` automatically record Neovim's RPC socket in
+`.ltex/nvim-server`. Neovim must support `--remote-expr`.
+
+To connect a Neovim session you started yourself, run `:echo v:servername`
+inside it, then save the printed address:
+
+```bash
+ltex config nvim_server /path/printed/by/neovim
+```
+
+Alternatively, start Neovim with a known socket, for example
+`nvim --listen /tmp/ltex-nvim.sock main.tex`, and set `nvim_server` to that
+socket. The `NVIM` environment variable is also recognized when the viewer is
+launched from Neovim's `:terminal`. Clear an explicit override with
+`ltex config nvim_server ""` to use automatic project registration again.
+If the editor has exited, ltex reports a connection error; reopen it with
+`ltex open` to register the new session.
+
 To jump from a source line to the PDF manually, use:
 
 ```bash
@@ -336,6 +364,7 @@ ltex config                         # show all settings
 ltex config editor code             # editor command
 ltex config viewer zathura          # PDF viewer command
 ltex config inverse_search "ltex inverse-search"
+ltex config nvim_server /path/to/socket  # optional existing Neovim RPC server
 ltex config distribution miktex     # miktex, texlive, or tinytex
 ltex config engine latexmk          # latexmk is the default; pdflatex, xelatex, lualatex also work
 ltex config templates_dir PATH      # template directory

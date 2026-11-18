@@ -15,6 +15,7 @@ DEFAULTS = {
     "editor": "",
     "viewer": "",
     "inverse_search": "ltex inverse-search",
+    "nvim_server": "",
     "distribution": "miktex",
     "engine": "latexmk",
     "templates_dir": "~/.config/ltex/templates",
