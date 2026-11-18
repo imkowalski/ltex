@@ -31,6 +31,7 @@ DIAGNOSTIC_PATTERN = re.compile(
     re.IGNORECASE,
 )
 MISSING_TEX_FILE_PATTERN = re.compile(r"File [`']([^`']+)[`'] not found")
+FILE_LINE_DIAGNOSTIC_PATTERN = re.compile(r"^.+:\d+:\s+\S")
 DEFAULT_COMPILER_ARGUMENTS = ["-interaction=nonstopmode", "-file-line-error", "-synctex=1"]
 
 
@@ -107,23 +108,31 @@ def compiler_environment(root: Path, distribution: str) -> dict[str, str]:
 
 
 def compiler_diagnostics(output: str) -> list[str]:
-    """Extract warnings/errors without echoing normal compiler progress."""
+    """Show source errors with context before warnings and tool summaries."""
     lines = output.splitlines()
+    errors: list[str] = []
     diagnostics: list[str] = []
     for index, line in enumerate(lines):
         stripped = line.strip()
         if not stripped:
             continue
-        if stripped.startswith("!") or DIAGNOSTIC_PATTERN.search(stripped):
-            if stripped not in diagnostics:
-                diagnostics.append(stripped)
-            # LaTeX usually puts the source line immediately after `! ...`.
-            if stripped.startswith("!"):
+        source_error = stripped.startswith("!") or (
+            FILE_LINE_DIAGNOSTIC_PATTERN.match(stripped)
+            and not re.search(r"\bwarning\b", stripped, re.IGNORECASE)
+        )
+        if source_error or DIAGNOSTIC_PATTERN.search(stripped):
+            target = errors if source_error else diagnostics
+            if stripped not in target:
+                target.append(stripped)
+            # With -file-line-error, TeX reports FILE:LINE rather than `!`.
+            # Keep the following source/expansion lines in both formats so
+            # the undefined command or offending expression remains visible.
+            if source_error:
                 for context in lines[index + 1:index + 3]:
                     context = context.strip()
-                    if context and context not in diagnostics:
-                        diagnostics.append(context)
-    return diagnostics
+                    if context and context not in target:
+                        target.append(context)
+    return list(dict.fromkeys(errors + diagnostics))
 
 
 def print_compiler_guide(config: dict[str, str], executable: str) -> None:
@@ -296,6 +305,18 @@ def build(root: Path, config: dict[str, str], quiet: bool = False) -> bool:
         print("\n".join(diagnostics))
     if result.returncode:
         print(f"Build failed (exit {result.returncode}). See {log}")
+        combined_output = result.stdout + "\n" + result.stderr
+        if "Undefined control sequence" in combined_output:
+            print(
+                "ltex: an undefined LaTeX command stopped compilation. "
+                "Check the source context above, correct the command, or load "
+                "the package/macro that defines it."
+            )
+        if re.search(r"incomplete[^\n]*\.bcf", combined_output, re.IGNORECASE):
+            print(
+                "ltex: an incomplete .bcf can result from LaTeX stopping early. "
+                "Fix any source errors above, then rebuild."
+            )
         if "package-manager.lock" in (result.stdout + "\n" + result.stderr):
             print("ltex: MiKTeX's package manager is still locked.")
             print("ltex: stop other MiKTeX/ltex builds, then retry `ltex build`.")

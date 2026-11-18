@@ -157,6 +157,12 @@ ltex work
   one document path.
 - Prints only warnings/errors in the terminal.
 
+Compiler diagnostics show source errors first, including the source line and
+command reported by LaTeX. An undefined command must be corrected or defined in
+the document, or supplied by a package. If LaTeX stops early and latexmk reports
+an incomplete `.bcf` file, correct the first source error and rebuild; that
+bibliography message can be a consequence of the earlier failure.
+
 ## PDF-to-editor navigation on Linux
 
 ltex enables SyncTeX during every build, which lets a PDF viewer map a clicked
